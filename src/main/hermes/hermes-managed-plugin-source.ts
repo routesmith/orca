@@ -131,6 +131,8 @@ def _pane_env() -> Optional[dict[str, str]]:
         env = dict(os.environ)
     else:
         # The shared gateway's own environment names whichever pane started it, never this session's.
+        # Why: the bound env is the creating client's; session.resume sends none, so a resumed
+        # session keeps reporting the pane that created it.
         client_env = bound_client_env()
         if client_env is None:
             return None

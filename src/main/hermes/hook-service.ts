@@ -41,8 +41,11 @@ function removeConfig(config: HermesConfig): HermesConfig {
   return removeClientEnvPassthrough(disablePlugin(config))
 }
 
-function buildStatus(configPath: string, config: HermesConfig): AgentHookInstallStatus {
-  const pluginFiles = getPluginFilesState()
+function buildStatus(
+  configPath: string,
+  config: HermesConfig,
+  pluginFiles = getPluginFilesState()
+): AgentHookInstallStatus {
   const enablement = getConfigEnablement(config)
   const passthrough = getClientEnvPassthroughState(config)
   const details = [
@@ -146,13 +149,12 @@ export class HermesHookService {
       await writeTextFileRemoteAtomic(sftp, `${remotePluginDir}/plugin.yaml`, getPluginManifest())
       await writeTextFileRemoteAtomic(sftp, `${remotePluginDir}/__init__.py`, getPluginInitSource())
       await writeTextFileRemoteAtomic(sftp, remoteConfigPath, next.content)
-      return {
-        agent: 'hermes',
-        state: 'installed',
-        configPath: remoteConfigPath,
-        managedHooksPresent: true,
+      const written = parseHermesConfig(next.content)
+      return buildStatus(remoteConfigPath, written.ok ? written.config : {}, {
+        present: true,
+        managed: true,
         detail: null
-      }
+      })
     } catch (error) {
       return {
         agent: 'hermes',

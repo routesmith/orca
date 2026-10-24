@@ -55,6 +55,10 @@ def run(session):
         hooks["pre_llm_call"](session_id=session["id"], user_message="hi", platform="cli")
         barrier.wait()
         hooks["post_llm_call"](session_id=session["id"], assistant_response="ok", platform="cli")
+        if not session["bound"]:
+            # Hermes 0.22 fires these from owner housekeeping, outside any session's scope.
+            hooks["on_session_finalize"](session_id=session["id"], platform="cli", reason="cli_close")
+            hooks["on_session_reset"](session_id=None, old_session_id=session["id"], platform="cli")
     if session["bound"]:
         with client_env_scope(session["env"]):
             fire()
@@ -109,10 +113,12 @@ describe('Hermes managed plugin pane identity', () => {
     rmSync(directory, { recursive: true, force: true })
   })
 
-  function sessionEnv(pane: string, tab: string, names: 'alias' | 'canonical' = 'alias') {
+  // What Hermes' client env filter lets through: the canonical pane and launch names contain
+  // KEY/TOKEN and never travel, so a session carries only their scrub-safe aliases.
+  function sessionEnv(pane: string, tab: string) {
     return {
-      [names === 'alias' ? 'ORCA_AGENT_PANE' : 'ORCA_PANE_KEY']: pane,
-      [names === 'alias' ? 'ORCA_AGENT_LAUNCH' : 'ORCA_AGENT_LAUNCH_TOKEN']: `launch-${tab}`,
+      ORCA_AGENT_PANE: pane,
+      ORCA_AGENT_LAUNCH: `launch-${tab}`,
       ORCA_TAB_ID: tab,
       ORCA_WORKTREE_ID: 'wt-1',
       ORCA_AGENT_HOOK_ENDPOINT: endpointPath
@@ -193,7 +199,7 @@ describe('Hermes managed plugin pane identity', () => {
         gatewayEnv: staleGateway,
         sessions: [
           { id: 'sess-a', bound: true, env: sessionEnv(PANE_A, 'tab-a') },
-          { id: 'sess-b', bound: true, env: sessionEnv(PANE_B, 'tab-b', 'canonical') }
+          { id: 'sess-b', bound: true, env: sessionEnv(PANE_B, 'tab-b') }
         ]
       })
 

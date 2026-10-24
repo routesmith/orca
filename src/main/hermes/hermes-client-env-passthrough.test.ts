@@ -101,14 +101,17 @@ describe.each(['\n', '\r\n'])('Hermes client env passthrough (%j)', (eol) => {
     expect(parse(installed).terminal).toEqual({ client_env_passthrough: ORCA_NAMES })
   })
 
-  it('leaves a malformed passthrough value alone and reports the integration partial', () => {
-    const input = ['terminal:', '  client_env_passthrough: GEM_HOME', ''].join(eol)
-    writeFileSync(configPath, input)
-    const status = service.install()
-    expect(status.state).toBe('partial')
-    expect(status.detail).toContain('terminal.client_env_passthrough is not a string list')
-    const installed = parse(readFileSync(configPath, 'utf8'))
-    expect(installed.terminal).toEqual({ client_env_passthrough: 'GEM_HOME' })
-    expect(installed.plugins.enabled).toEqual(['orca-status'])
-  })
+  it.each(['local', 'remote'] as const)(
+    'leaves a malformed passthrough value alone and reports the integration partial (%s install)',
+    async (kind) => {
+      const input = ['terminal:', '  client_env_passthrough: GEM_HOME', ''].join(eol)
+      writeFileSync(configPath, input)
+      const status = await installs[kind]()
+      expect(status.state).toBe('partial')
+      expect(status.detail).toContain('terminal.client_env_passthrough is not a string list')
+      const installed = parse(readFileSync(configPath, 'utf8'))
+      expect(installed.terminal).toEqual({ client_env_passthrough: 'GEM_HOME' })
+      expect(installed.plugins.enabled).toEqual(['orca-status'])
+    }
+  )
 })
