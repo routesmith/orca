@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { parse } from 'yaml'
 
-import { HERMES_PLUGIN_NAME } from './hermes-managed-plugin-source'
+import { HERMES_CLIENT_ENV_PASSTHROUGH, HERMES_PLUGIN_NAME } from './hermes-managed-plugin-source'
 import { updateHermesPluginDocument } from './hermes-config-document'
 
 export type HermesConfig = Record<string, unknown>
@@ -76,6 +76,43 @@ export function disablePlugin(config: HermesConfig): HermesConfig {
   return next
 }
 
+const PASSTHROUGH_KEY = 'client_env_passthrough'
+const ORCA_PASSTHROUGH: readonly string[] = HERMES_CLIENT_ENV_PASSTHROUGH
+
+function passthroughNames(config: HermesConfig): string[] | null {
+  if (config.terminal === undefined) {
+    return []
+  }
+  return isRecord(config.terminal) ? asStringArray(config.terminal[PASSTHROUGH_KEY]) : null
+}
+
+export function addClientEnvPassthrough(config: HermesConfig): HermesConfig {
+  const names = passthroughNames(config)
+  // Hermes ignores a malformed list; leaving it alone keeps the user's value for them to fix.
+  if (names === null) {
+    return config
+  }
+  const missing = ORCA_PASSTHROUGH.filter((name) => !names.includes(name))
+  if (missing.length === 0) {
+    return config
+  }
+  const terminal = isRecord(config.terminal) ? config.terminal : {}
+  return { ...config, terminal: { ...terminal, [PASSTHROUGH_KEY]: [...names, ...missing] } }
+}
+
+export function removeClientEnvPassthrough(config: HermesConfig): HermesConfig {
+  const names = passthroughNames(config)
+  if (
+    names === null ||
+    !isRecord(config.terminal) ||
+    !names.some((name) => ORCA_PASSTHROUGH.includes(name))
+  ) {
+    return config
+  }
+  const kept = names.filter((name) => !ORCA_PASSTHROUGH.includes(name))
+  return { ...config, terminal: { ...config.terminal, [PASSTHROUGH_KEY]: kept } }
+}
+
 export function updateConfigContent(
   content: string | null,
   updater: (config: HermesConfig) => HermesConfig
@@ -89,6 +126,21 @@ export function updateConfigContent(
     return { content: content ?? '' }
   }
   return updateHermesPluginDocument(content ?? '', next)
+}
+
+export function getClientEnvPassthroughState(config: HermesConfig): {
+  present: boolean
+  detail: string | null
+} {
+  const names = passthroughNames(config)
+  if (names === null) {
+    return { present: false, detail: `terminal.${PASSTHROUGH_KEY} is not a string list` }
+  }
+  const present = ORCA_PASSTHROUGH.every((name) => names.includes(name))
+  return {
+    present,
+    detail: present ? null : `terminal.${PASSTHROUGH_KEY} is missing Orca's pane identity names`
+  }
 }
 
 export function getConfigEnablement(config: HermesConfig): {

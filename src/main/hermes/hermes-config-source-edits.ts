@@ -4,6 +4,12 @@ import type { Node, YAMLMap, YAMLSeq } from 'yaml'
 
 type SourceEdit = { start: number; end: number; text: string }
 
+// The only config.yaml lists Orca edits; everything else keeps its source bytes.
+export const HERMES_EDITED_LISTS = {
+  plugins: ['enabled', 'disabled'],
+  terminal: ['client_env_passthrough']
+} as const
+
 function columnAt(source: string, offset: number): number {
   return offset - source.lastIndexOf('\n', offset - 1) - 1
 }
@@ -87,32 +93,36 @@ export function applyHermesPluginSourceEdits(source: string, document: Document)
   if (!isMap(updated.contents)) {
     throw new Error('Missing updated Hermes mapping')
   }
-  const plugins = original.get('plugins', true)
-  const updatedPlugins = updated.get('plugins', true)
-  if (!isMap(updatedPlugins)) {
-    throw new Error('Missing updated Hermes plugins')
-  }
   const edits: SourceEdit[] = []
-  if (plugins === undefined) {
-    edits.push(insertPair(source, printed, original.contents, updated.contents, 'plugins'))
-  } else {
-    if (!isMap(plugins)) {
-      throw new Error('Unexpected Hermes plugins mapping')
+  for (const [section, keys] of Object.entries(HERMES_EDITED_LISTS)) {
+    const previousSection = original.get(section, true)
+    const nextSection = updated.get(section, true)
+    if (!isMap(nextSection)) {
+      continue
     }
-    for (const key of ['enabled', 'disabled']) {
-      const previous = plugins.get(key, true)
-      const next = updatedPlugins.get(key, true)
+    if (previousSection === undefined) {
+      edits.push(insertPair(source, printed, original.contents, updated.contents, section))
+      continue
+    }
+    if (!isMap(previousSection)) {
+      throw new Error(`Unexpected Hermes ${section} mapping`)
+    }
+    for (const key of keys) {
+      const previous = previousSection.get(key, true)
+      const next = nextSection.get(key, true)
       if (!isNode(next)) {
         continue
       }
       if (previous === undefined) {
-        edits.push(insertPair(source, printed, plugins, updatedPlugins, key, original.contents))
+        edits.push(
+          insertPair(source, printed, previousSection, nextSection, key, original.contents)
+        )
       } else if (isNode(previous) && !isDeepStrictEqual(previous.toJSON(), next.toJSON())) {
-        const edited = document.createNode(document.getIn(['plugins', key], true))
+        const edited = document.createNode(document.getIn([section, key], true))
         if (!isSeq(edited)) {
-          throw new Error('Missing edited Hermes plugin list')
+          throw new Error(`Missing edited Hermes ${section} list`)
         }
-        edits.push(replaceNode(source, plugins, previous, edited))
+        edits.push(replaceNode(source, previousSection, previous, edited))
       }
     }
   }

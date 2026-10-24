@@ -16,6 +16,10 @@ import {
   RUNTIME_SOURCE_PROFILE_PATH_ENV
 } from '../../shared/runtime-source-env'
 import { CODEX_REMOTE_VIEWER_SSH_CONNECTION } from '../ipc/pty/host-env/codex-terminal-clipboard'
+import {
+  ORCA_SCRUB_SAFE_LAUNCH_ENV,
+  ORCA_SCRUB_SAFE_PANE_ENV
+} from '../../shared/agent-hook-scrub-safe-env'
 
 const WSLENV_ENTRY_SEPARATOR = ':'
 
@@ -95,6 +99,9 @@ export function addOrcaWslInteropEnv(env: Record<string, string>): void {
     // An id, never a path; agent wrappers and the guest CLI read it like ORCA_WORKTREE_ID.
     'ORCA_WORKSPACE_ID/u',
     'ORCA_AGENT_LAUNCH_TOKEN/u',
+    // Hermes' shared gateway only receives a session's pane identity under these scrub-safe names.
+    `${ORCA_SCRUB_SAFE_PANE_ENV}/u`,
+    `${ORCA_SCRUB_SAFE_LAUNCH_ENV}/u`,
     // The guest plugin uses this marker to select the OpenCode variant that
     // owns the pane when both native and WSL installations are present.
     'ORCA_OPENCODE_AGENT/u',

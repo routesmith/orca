@@ -8,10 +8,13 @@ import {
 } from '../agent-hooks/installer-utils-remote'
 import type { HermesConfig } from './hermes-config-yaml'
 import {
+  addClientEnvPassthrough,
   disablePlugin,
   enablePlugin,
+  getClientEnvPassthroughState,
   getConfigEnablement,
   parseHermesConfig,
+  removeClientEnvPassthrough,
   updateConfigContent
 } from './hermes-config-yaml'
 import {
@@ -30,12 +33,22 @@ import {
   getPluginManifest
 } from './hermes-managed-plugin-source'
 
+function installConfig(config: HermesConfig): HermesConfig {
+  return addClientEnvPassthrough(enablePlugin(config))
+}
+
+function removeConfig(config: HermesConfig): HermesConfig {
+  return removeClientEnvPassthrough(disablePlugin(config))
+}
+
 function buildStatus(configPath: string, config: HermesConfig): AgentHookInstallStatus {
   const pluginFiles = getPluginFilesState()
   const enablement = getConfigEnablement(config)
+  const passthrough = getClientEnvPassthroughState(config)
   const details = [
     pluginFiles.detail,
     enablement.detail,
+    passthrough.detail,
     !enablement.enabled ? 'orca-status is not enabled in Hermes config.yaml' : null,
     enablement.disabled ? 'orca-status is disabled in Hermes config.yaml' : null
   ].filter((detail): detail is string => Boolean(detail))
@@ -47,7 +60,8 @@ function buildStatus(configPath: string, config: HermesConfig): AgentHookInstall
     pluginFiles.present &&
     pluginFiles.managed &&
     enablement.enabled &&
-    !enablement.disabled
+    !enablement.disabled &&
+    passthrough.present
   ) {
     state = 'installed'
   } else {
@@ -96,7 +110,7 @@ export class HermesHookService {
       }
     }
 
-    const next = updateConfigContent(parsed.content, enablePlugin)
+    const next = updateConfigContent(parsed.content, installConfig)
     if (next.content === null) {
       return {
         agent: 'hermes',
@@ -119,7 +133,7 @@ export class HermesHookService {
     const remotePluginDir = `${remoteRoot}/.hermes/plugins/${HERMES_PLUGIN_NAME}`
     try {
       const existing = await readTextFileRemote(sftp, remoteConfigPath)
-      const next = updateConfigContent(existing, enablePlugin)
+      const next = updateConfigContent(existing, installConfig)
       if (next.content === null) {
         return {
           agent: 'hermes',
@@ -162,7 +176,7 @@ export class HermesHookService {
         detail: `Could not parse Hermes config.yaml: ${parsed.detail}`
       }
     }
-    const next = updateConfigContent(parsed.content, disablePlugin)
+    const next = updateConfigContent(parsed.content, removeConfig)
     if (next.content === null) {
       return {
         agent: 'hermes',

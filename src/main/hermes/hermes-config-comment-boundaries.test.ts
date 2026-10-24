@@ -4,8 +4,17 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { parseDocument } from 'yaml'
 import { createManagedHookLocalFilesystem } from '../agent-hooks/managed-hook-local-filesystem.test-fixture'
-import { disablePlugin, enablePlugin, updateConfigContent } from './hermes-config-yaml'
+import {
+  disablePlugin,
+  enablePlugin,
+  removeClientEnvPassthrough,
+  updateConfigContent
+} from './hermes-config-yaml'
+import { HERMES_CLIENT_ENV_PASSTHROUGH } from './hermes-managed-plugin-source'
 import { HermesHookService } from './hook-service'
+
+// Already-configured names keep these plugin-list cases about plugin lists.
+const passthrough = `terminal:\n  client_env_passthrough: [${HERMES_CLIENT_ENV_PASSTHROUGH.join(', ')}]\n`
 
 const fixtures = [
   ...['  ', '    '].flatMap((indent) =>
@@ -42,10 +51,11 @@ describe.each(['\n', '\r\n'])('Hermes comment boundaries (%j)', (eol) => {
     it.each(fixtures)('preserves $name exactly once through the service', async (fixture) => {
       const key = operation === 'install' ? 'disabled' : 'enabled'
       const enabled = operation === 'install' ? '  enabled: [orca-status]\n' : ''
-      const input = `plugins:\n${enabled}  ${key}:\n${fixture.list}${fixture.suffix}`.replaceAll(
-        '\n',
-        eol
-      )
+      const input =
+        `${passthrough}plugins:\n${enabled}  ${key}:\n${fixture.list}${fixture.suffix}`.replaceAll(
+          '\n',
+          eol
+        )
       const updater = operation === 'install' ? enablePlugin : disablePlugin
       const result = updateConfigContent(input, updater)
       expect(result.detail).toBeUndefined()
@@ -73,7 +83,11 @@ describe.each(['\n', '\r\n'])('Hermes comment boundaries (%j)', (eol) => {
         const service = new HermesHookService()
         const status = operation === 'install' ? service.install() : service.remove()
         expect(status.state).toBe(operation === 'install' ? 'installed' : 'not_installed')
-        expect(readFileSync(path, 'utf8')).toBe(output)
+        expect(readFileSync(path, 'utf8')).toBe(
+          operation === 'install'
+            ? output
+            : updateConfigContent(output, removeClientEnvPassthrough).content
+        )
         expect(readFileSync(`${path}.bak`, 'utf8')).toBe(input)
         if (operation === 'install') {
           writeFileSync(path, input)

@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { createManagedHookLocalFilesystem } from '../agent-hooks/managed-hook-local-filesystem.test-fixture'
+import { HERMES_CLIENT_ENV_PASSTHROUGH } from './hermes-managed-plugin-source'
 import { HermesHookService } from './hook-service'
 
 describe('Hermes remote installer through a local filesystem adapter (no SSH)', () => {
@@ -29,7 +30,7 @@ describe('Hermes remote installer through a local filesystem adapter (no SSH)', 
   afterEach(() => rmSync(directory, { recursive: true, force: true }))
 
   it('does not rewrite a configured CRLF file or an existing backup', async () => {
-    const initial = '# operator notes\r\nplugins:\r\n  enabled: [zeta, orca-status, alpha]\r\n'
+    const initial = `# operator notes\r\nplugins:\r\n  enabled: [zeta, orca-status, alpha]\r\nterminal:\r\n  client_env_passthrough: [${HERMES_CLIENT_ENV_PASSTHROUGH.join(', ')}]\r\n`
     writeFileSync(configPath, initial)
     writeFileSync(`${configPath}.bak`, 'recovery point')
     const before = statSync(configPath)
@@ -62,7 +63,8 @@ describe('Hermes remote installer through a local filesystem adapter (no SSH)', 
       expect(installed).toContain(`prompt: |${eol}  First${eol}  Second`)
       expect(parse(installed)).toEqual({
         ...parse(input),
-        plugins: { enabled: ['other', 'orca-status'] }
+        plugins: { enabled: ['other', 'orca-status'] },
+        terminal: { client_env_passthrough: [...HERMES_CLIENT_ENV_PASSTHROUGH] }
       })
       const before = statSync(configPath)
       expect((await service.installRemote(filesystem, directory)).state).toBe('installed')

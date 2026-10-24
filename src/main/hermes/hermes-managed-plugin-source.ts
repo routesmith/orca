@@ -1,3 +1,8 @@
+import {
+  ORCA_SCRUB_SAFE_LAUNCH_ENV,
+  ORCA_SCRUB_SAFE_PANE_ENV
+} from '../../shared/agent-hook-scrub-safe-env'
+
 export const HERMES_PLUGIN_NAME = 'orca-status'
 export const HERMES_PLUGIN_MARKER = 'Managed by Orca. Do not edit; changes may be overwritten.'
 
@@ -12,6 +17,17 @@ export const HERMES_EVENTS = [
   'on_session_end',
   'on_session_finalize',
   'on_session_reset'
+] as const
+
+// Hermes' shared gateway hands the plugin only the names a session's client sent from this list.
+export const HERMES_CLIENT_ENV_PASSTHROUGH = [
+  ORCA_SCRUB_SAFE_PANE_ENV,
+  ORCA_SCRUB_SAFE_LAUNCH_ENV,
+  'ORCA_TAB_ID',
+  'ORCA_WORKTREE_ID',
+  'ORCA_AGENT_HOOK_ENDPOINT',
+  'ORCA_AGENT_HOOK_ENV',
+  'ORCA_AGENT_HOOK_VERSION'
 ] as const
 
 export function getPluginManifest(): string {
@@ -37,6 +53,12 @@ import os
 import urllib.error
 import urllib.request
 from typing import Any, Callable, Optional
+
+try:
+    from agent.session_client_env import bound_client_env
+except ImportError:
+    # Hermes before the shared gateway runs each pane's session in that pane's own process.
+    bound_client_env = None
 
 EVENTS = ${JSON.stringify(HERMES_EVENTS)}
 # Why: hook args/results can include full tool payloads. Bound traversal before
@@ -97,8 +119,29 @@ def _jsonable(value: Any, depth: int = 0, budget: Optional[list[int]] = None) ->
     return _truncate_string(repr(value))
 
 
-def _endpoint_env() -> dict[str, str]:
-    env = dict(os.environ)
+# Hermes never forwards names matching its secret policy, so a client sends these aliases instead.
+CLIENT_ENV_ALIASES = (
+    ("ORCA_PANE_KEY", "${ORCA_SCRUB_SAFE_PANE_ENV}"),
+    ("ORCA_AGENT_LAUNCH_TOKEN", "${ORCA_SCRUB_SAFE_LAUNCH_ENV}"),
+)
+
+
+def _pane_env() -> Optional[dict[str, str]]:
+    if bound_client_env is None:
+        env = dict(os.environ)
+    else:
+        # The shared gateway's own environment names whichever pane started it, never this session's.
+        client_env = bound_client_env()
+        if client_env is None:
+            return None
+        env = dict(client_env)
+    for canonical, alias in CLIENT_ENV_ALIASES:
+        if not env.get(canonical) and env.get(alias):
+            env[canonical] = env[alias]
+    return env
+
+
+def _endpoint_env(env: dict[str, str]) -> dict[str, str]:
     endpoint = env.get("ORCA_AGENT_HOOK_ENDPOINT", "")
     if endpoint and os.path.isfile(endpoint):
         try:
@@ -118,7 +161,10 @@ def _endpoint_env() -> dict[str, str]:
 
 
 def _post_to_orca(payload: dict[str, Any]) -> None:
-    env = _endpoint_env()
+    pane_env = _pane_env()
+    if pane_env is None:
+        return
+    env = _endpoint_env(pane_env)
     port = env.get("ORCA_AGENT_HOOK_PORT", "")
     token = env.get("ORCA_AGENT_HOOK_TOKEN", "")
     pane_key = env.get("ORCA_PANE_KEY", "")
